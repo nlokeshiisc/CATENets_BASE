@@ -13,6 +13,8 @@ import numpy as np
 import catenets.logger as log
 
 from .network import download_if_needed
+from .torch_dataset import BaseTorchDataset, PairDataset
+from catenets.models.jax import PAIRNET_NAME
 
 np.random.seed(0)
 random.seed(0)
@@ -103,7 +105,7 @@ def prepare_ihdp_data(
         data_train["mu1"],
     )
 
-    X_t, _, _, mu0_t, mu1_t = (
+    X_t, _, w_t, mu0_t, mu1_t = (
         data_test["X"],
         data_test["y"],
         data_test["w"],
@@ -135,9 +137,64 @@ def prepare_ihdp_data(
     cate_true_out = mu1_t - mu0_t
 
     if return_pos:
-        return X, y, w, cate_true_in, X_t, cate_true_out, mu0, mu1, mu0_t, mu1_t
+        return X, y, w, cate_true_in, X_t, w_t, cate_true_out, mu0, mu1, mu0_t, mu1_t
 
-    return X, y, w, cate_true_in, X_t, cate_true_out
+    else:
+        return X, y, w, cate_true_in, X_t, w_t, cate_true_out
+
+
+def prepare_ihdp_pairnet_data(
+    i_exp,
+    model_name: str,
+    data_train: dict,
+    data_test: dict,
+    rescale: bool = False,
+    setting: str = "C",
+    return_pos: bool = False,
+    **kwargs,
+):
+    X, y, beta, cate_true_in, X_test, beta_test, cate_true_out = prepare_ihdp_data(
+        data_train,
+        data_test,
+        rescale=rescale,
+        setting=setting,
+        return_pos=return_pos,
+    )
+
+
+    ads_train = None
+    if model_name == PAIRNET_NAME:
+        # Load the Factual model's embeddings
+        tar_path = Path(
+            "results/experiments_benchmarking/ihdp/TARNet"
+        )
+        tar_train = np.load(tar_path / f"ihdp-{setting}-{i_exp}-trn.npy")
+        tar_test = np.load(tar_path / f"ihdp-{setting}-{i_exp}-tst.npy")
+        print(f"Loaded Embeddings from {str(tar_path)}")
+
+        tar_train_emb = tar_train[:, :-2]
+        tar_test_emb = tar_test[:, :-2]
+        
+        ads_train = PairDataset(
+            X=X,
+            beta=beta,
+            y=y,
+            xemb=tar_train_emb,
+            **kwargs,
+        )
+
+    return (
+        {
+            "X": X,
+            "y": y,
+            "w": beta,
+            "cate_true_in": cate_true_in,
+            "X_t": X_test,
+            "w_t": beta_test,
+            "cate_true_out": cate_true_out,
+        },
+        ads_train,
+    )
 
 
 def get_one_data_set(D: dict, i_exp: int, get_po: bool = True) -> dict:
@@ -208,6 +265,7 @@ def load(data_path: Path, exp: int = 1, rescale: bool = False, **kwargs: Any) ->
         w,
         cate_true_in,
         X_t,
+        w_t,
         cate_true_out,
         mu0,
         mu1,

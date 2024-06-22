@@ -12,6 +12,7 @@ from jax.example_libraries import optimizers, stax
 from jax.example_libraries.stax import Dense, Elu, Relu, Sigmoid
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.model_selection import ParameterGrid
+from catenets.datasets.torch_dataset import BaseTorchDataset
 
 import catenets.logger as log
 from catenets.models.constants import (
@@ -167,6 +168,110 @@ class BaseCATENet(BaseEstimator, RegressorMixin, abc.ABC):
 
         return self
 
+    def cont_fit(
+        self,
+        X: jnp.ndarray,
+        y: jnp.ndarray,
+        dosage: jnp.ndarray,
+        p: Optional[jnp.ndarray] = None,
+    ) -> "BaseCATENet":
+        """
+        This is the fit function for continuous datasets
+        w takes values in the range [0, 1], and thus all the irrelevanmt asserts are suppressed.
+        input
+
+        Parameters
+        ----------
+        X: pd.DataFrame or np.array
+            Covariate matrix
+        y: np.array
+            Outcome vector
+        dosage: np.array
+            dosage values
+        p: np.array
+            Vector of (known) treatment propensities. Currently only supported for TwoStepNets.
+        """
+        # some quick input checks
+        if p is not None:
+            raise NotImplementedError("Only two-step-nets take p as input. ")
+        X = check_X_is_np(X)
+
+        train_func = self._get_train_function()
+        train_params = self.get_params()
+
+        (self._params, self._predict_funs, train_val_indices) = train_func(
+            X, y, dosage, **train_params
+        )
+        self.train_indices, self.val_indices = train_val_indices
+        return self
+
+    def cont_pair_fit(
+        self,
+        X: jnp.ndarray,
+        y: jnp.ndarray,
+        w: jnp.ndarray,
+        train_reps: jnp.ndarray,
+        p: Optional[jnp.ndarray] = None,
+    ) -> "BaseCATENet":
+        """
+        Fit method for a CATENet. Takes covariates, outcome variable and treatment indicator as
+        input
+
+        Parameters
+        ----------
+        X: pd.DataFrame or np.array
+            Covariate matrix
+        y: np.array
+            Outcome vector
+        w: np.array
+            Treatment indicator
+        p: np.array
+            Vector of (known) treatment propensities. Currently only supported for TwoStepNets.
+        """
+        # some quick input checks
+        if p is not None:
+            raise NotImplementedError("Only two-step-nets take p as input. ")
+        X = check_X_is_np(X)
+        # self._check_inputs(w, p)
+
+        train_func = self._get_train_function()
+        train_params = self.get_params()
+
+        (self._params, self._predict_funs, train_val_indices) = train_func(
+            X, y, w, train_reps, **train_params
+        )
+        self.train_indices, self.val_indices = train_val_indices
+        return self
+
+    def pair_fit(
+        self,
+        ads_train: BaseTorchDataset,
+    ) -> "BaseCATENet":
+        """
+        Fit method for a CATENet. Takes covariates, outcome variable and treatment indicator as
+        input
+
+        Parameters
+        ----------
+        X: pd.DataFrame or np.array
+            Covariate matrix
+        y: np.array
+            Outcome vector
+        w: np.array
+            Treatment indicator
+        p: np.array
+            Vector of (known) treatment propensities. Currently only supported for TwoStepNets.
+        """
+        # some quick input checks
+        self.ads_train: BaseTorchDataset = ads_train
+
+        train_func = self._get_train_function()
+        train_params = self.get_params()
+
+        self._params, self._predict_funs = train_func(ads_train, **train_params)
+
+        return self
+
     @abc.abstractmethod
     def _get_predict_function(self) -> Callable:
         ...
@@ -199,6 +304,67 @@ class BaseCATENet(BaseEstimator, RegressorMixin, abc.ABC):
             predict_funs=self._predict_funs,
             return_po=return_po,
             return_prop=return_prop,
+        )
+
+    def predict_cont(
+        self,
+        X: jnp.ndarray,
+        d: jnp.ndarray,
+        return_po: bool = False,
+        return_prop: bool = False,
+    ) -> jnp.ndarray:
+        """
+        Predict treatment effect estimates using a CATENet. Depending on method, can also return
+        potential outcome estimate and propensity score estimate.
+
+        Parameters
+        ----------
+        X: pd.DataFrame or np.array
+            Covariate matrix
+        return_po: bool, default False
+            Whether to return potential outcome estimate
+        return_prop: bool, default False
+            Whether to return propensity estimate
+
+        Returns
+        -------
+        array of CATE estimates, optionally also potential outcomes and propensity
+        """
+        X = check_X_is_np(X)
+        predict_func = self._get_predict_function()
+        return predict_func(
+            X,
+            d,
+            trained_params=self._params,
+            predict_funs=self._predict_funs,
+            return_po=return_po,
+            return_prop=return_prop,
+        )
+
+    def getrepr(self, X: jnp.ndarray) -> jnp.ndarray:
+        """
+        Predict treatment effect estimates using a CATENet. Depending on method, can also return
+        potential outcome estimate and propensity score estimate.
+
+        Parameters
+        ----------
+        X: pd.DataFrame or np.array
+            Covariate matrix
+        return_po: bool, default False
+            Whether to return potential outcome estimate
+        return_prop: bool, default False
+            Whether to return propensity estimate
+
+        Returns
+        -------
+        array of CATE estimates, optionally also potential outcomes and propensity
+        """
+        X = check_X_is_np(X)
+        reprfn = self._get_repr_function()
+        return reprfn(
+            X,
+            trained_params=self._params,
+            predict_funs=self._predict_funs,
         )
 
     @staticmethod

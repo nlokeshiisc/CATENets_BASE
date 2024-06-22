@@ -44,6 +44,7 @@ if __name__ == "__main__":
             n_exp=args.n_exp,
             setting=args.setting,
             n_reps=args.n_reps,
+            save_reps=True, # For running PairNet
         )
     elif (args.experiment == "acic") or (args.experiment == "ACIC"):
         do_acic_experiments(
@@ -52,6 +53,7 @@ if __name__ == "__main__":
             simu_num=args.simu_num,
             n_exp=args.n_exp,
             pre_trans=args.pre_trans,
+            save_reps=True, # for running PairNet
         )
     elif (args.experiment == "twins") or (args.experiment == "Twins"):
         do_twins_experiment_loop(file_name=args.file_name, n_exp=args.n_reps)

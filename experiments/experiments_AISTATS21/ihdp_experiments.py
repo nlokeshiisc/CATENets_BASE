@@ -101,7 +101,7 @@ def do_ihdp_experiments(
         data_exp = get_one_data_set(data_train, i_exp=i_exp, get_po=True)
         data_exp_test = get_one_data_set(data_test, i_exp=i_exp, get_po=True)
 
-        X, y, w, cate_true_in, X_t, cate_true_out = prepare_ihdp_data(
+        X, y, w, cate_true_in, X_t, w_t, cate_true_out = prepare_ihdp_data(
             data_exp, data_exp_test, rescale=scale_cate
         )
 

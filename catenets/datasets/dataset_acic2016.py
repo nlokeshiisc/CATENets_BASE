@@ -7,12 +7,14 @@ import glob
 import random
 from pathlib import Path
 from typing import Any, Tuple
+from catenets.models.jax import PAIRNET_NAME
 
 # third party
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from .torch_dataset import BaseTorchDataset, PairDataset
 
 import catenets.logger as log
 
@@ -61,13 +63,12 @@ def get_acic_covariates(
         feature_list = []
         for cols_ in X.columns:
             if type(X.loc[X.index[0], cols_]) not in [np.int64, np.float64]:
-
                 enc = OneHotEncoder(drop="first")
 
                 enc.fit(np.array(X[[cols_]]).reshape((-1, 1)))
 
-                for k in range(len(list(enc.get_feature_names()))):
-                    X[cols_ + list(enc.get_feature_names())[k]] = enc.transform(
+                for k in range(len(list(enc.get_feature_names_out()))):
+                    X[cols_ + list(enc.get_feature_names_out())[k]] = enc.transform(
                         np.array(X[[cols_]]).reshape((-1, 1))
                     ).toarray()[:, k]
 
@@ -350,4 +351,92 @@ def load(
         preprocessed=preprocessed,
         original_acic_outcomes=original_acic_outcomes,
         **kwargs,
+    )
+
+
+def load_pair_dataset(
+    model_name,
+    data_path: Path,
+    preprocessed: bool = True,
+    original_acic_outcomes: bool = False,
+    **kwargs: Any,
+) -> Tuple:
+    """
+    ACIC2016 dataset dataloader.
+        - Download the dataset if needed.
+        - Load the dataset.
+        - Preprocess the data.
+        - Return train/test split.
+
+    Parameters
+    ----------
+    data_path: Path
+        Path to the CSV. If it is missing, it will be downloaded.
+    preprocessed: bool
+        Switch between the raw and preprocessed versions of the dataset.
+    original_acic_outcomes: bool
+        Switch between new simulations (Inductive bias paper) and original acic outcomes
+
+    Returns
+    -------
+    train_x: array or pd.DataFrame
+        Features in training data.
+    train_t: array or pd.DataFrame
+        Treatments in training data.
+    train_y: array or pd.DataFrame
+        Observed outcomes in training data.
+    train_potential_y: array or pd.DataFrame
+        Potential outcomes in training data.
+    test_x: array or pd.DataFrame
+        Features in testing data.
+    test_potential_y: array or pd.DataFrame
+        Potential outcomes in testing data.
+    """
+    data_path = Path("catenets/datasets/data")
+
+    i_exp = kwargs["i_exp"]
+    SEP = "_"
+    trn_embs_file = f"acic-{SEP}{str(preprocessed)}{SEP}{str(kwargs['simu_num'])}{SEP}{str(kwargs['train_size'])}-{i_exp}-trn.npy"
+    tst_embs_file = f"acic-{SEP}{str(preprocessed)}{SEP}{str(kwargs['simu_num'])}{SEP}{str(kwargs['train_size'])}-{i_exp}-tst.npy"
+    emb_dir = Path(
+        "results/experiments_benchmarking/acic2016/TARNet"
+    )
+    
+
+    if model_name in [PAIRNET_NAME]:
+        tar_train = np.load(emb_dir / trn_embs_file)
+        tar_test = np.load(emb_dir / tst_embs_file)
+        print("Loaded embeddings from ", emb_dir)
+        cfr_train_emb = tar_train[:, :-2]
+        cfr_test_emb = tar_test[:, :-2]
+
+    (X_train, w_train, y_train, po_train, X_test, w_test, y_test, po_test) = load(
+        data_path=data_path,
+        preprocessed=preprocessed,
+        original_acic_outcomes=original_acic_outcomes,
+        **kwargs,
+    )
+    
+    ads_train = None
+    if model_name in [PAIRNET_NAME]:
+        ads_train = PairDataset(
+            X=X_train,
+            beta=w_train,
+            y=y_train,
+            xemb=cfr_train_emb,
+            **kwargs,
+        )
+
+    return (
+        {
+            "X_train": X_train,
+            "y_train": y_train,
+            "w_train": w_train,
+            "po_train": po_train,
+            "X_test": X_test,
+            "y_test": y_test,
+            "w_test": w_test,
+            "po_test": po_test,
+        },
+        ads_train,
     )
